@@ -1,0 +1,147 @@
+sudo service apache2 stop && sudo service nginx stop
+фикс стилей
+docker-compose exec api composer code-sniffer
+
+
+Route::post('/login', [ 'as' => 'login', 'uses' => '\App\Http\Controllers\Auth\LoginController@index']);
+
+docker-compose exec db sh -c "mysql -uroot -psecret"
+npm
+
+export NODE_OPTIONS=--openssl-legacy-provider
+
+    public function __construct()
+    {
+        $this->authorizeResource(User::class);
+    }
+
+/**
+     * @param UserStoreRequest $request
+     * @return JsonResponse
+     */
+    public function store(UserStoreRequest $request): JsonResponse
+    {
+        $roles = $request->get('roles');
+
+            $user = new User();
+            $user->first_name = (string)$request->get('first_name');
+            $user->last_name = (string)$request->get('last_name');
+            $user->email = (string)$request->get('email');
+            $user->password = (string)$request->get('password');
+            $user->phone = (int)$request->get('phone');
+            $user->country = (string)$request->get('country');
+            $user->city = (string)$request->get('city');
+
+        if ($roles == self::STUDENT_ROLE) {
+            $user->affiliate_id = $request->get('affiliate_id');
+            $user->assignRole(self::STUDENT_ROLE);
+            $user->save();
+        }
+        if ($roles == self::MODERATOR_ROLE) {
+            $user->affiliate_id = $request->get('affiliate_id');
+            $user->assignRole(self::MODERATOR_ROLE);
+            $user->save();
+        }
+        if ($roles == self::MANAGER_ROLE) {
+            $user->assignRole(self::MANAGER_ROLE);
+            $user->getPermissionsViaRoles();
+            // todo: assign permissions for manager
+            $user->save();
+        }
+
+        return new JsonResponse(new UserResource($user));
+    }
+    
+     /**
+     * @param User $user
+     * @return JsonResponse
+     * @throws Throwable
+     */
+    public function destroy(User $user): JsonResponse
+    {
+        $user->deleteOrFail();
+
+        return new JsonResponse([], Response::HTTP_OK);
+    }
+    
+    userstorerequest
+    
+        /**
+     * Determine if the user is authorized to make this request.
+     *
+     * @return bool
+     */
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    /**
+     * Get the validation rules that apply to the request.
+     *
+     * @return array
+     */
+    public function rules(): array
+    {
+        return [
+            'first_name' => ['string', 'min:1', 'max:50'],
+            'last_name' => ['string', 'min:1', 'max:50'],
+            'phone' => ['string', 'regex:/^([0-9\s\-\+\(\)]*)$/','min:10', 'max:15'],
+            'email' => ['email', Rule::unique('users', 'email')->ignore($this->user()->id)],
+            'position' => ['string', 'max:150'],
+            'country' => ['string', 'max:150'],
+            'city' => ['string', 'max:150'],
+            'affiliate_id' => [ 'required',
+                Rule::exists('affiliates', 'id'),
+            ]
+        ];
+    }
+
+    public function toArray(): array
+    {
+        return array_filter([
+            'first_name' => $this->first_name,
+            'last_name' => $this->last_name,
+            'phone' => $this->phone,
+            'email' => $this->email,
+            'position' => $this->position,
+            'country' => $this->country,
+            'city' => $this->city,
+            'affiliate_id' => $this->affiliate_id
+        ]);
+    }
+    
+   userPolicy
+   
+       public function viewAny(User $user): bool
+    {
+        return true;
+    }
+
+    public function create(User $user): bool
+    {
+        return $user->hasRole([
+            Role::ROLE_SUPER_ADMIN,
+            Role::ROLE_ADMIN,
+            Role::ROLE_CLIENT
+        ]);
+    }
+
+    public function update(User $user, User $targetUser): bool
+    {
+        return $user->hasRole(Role::ROLE_SUPER_ADMIN)
+            || ($user->hasRole(Role::DEFAULT_UPDATE_ROLES));
+    }
+
+    public function view(User $user, User $targetUser): bool
+    {
+        return $user->hasRole(Role::ROLE_SUPER_ADMIN);
+    }
+
+    public function delete(User $user, User $targetUser): bool
+    {
+        return $user->hasRole(Role::ROLE_SUPER_ADMIN)
+            || ($user->hasRole(Role::DEFAULT_DELETE_ROLES)
+                && CompanyPolicy::userAssignedToCompany($targetUser)
+            );
+    }
