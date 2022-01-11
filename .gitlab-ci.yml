@@ -1,0 +1,93 @@
+image: registry.gitlab.com/mosakovskijj/logos-api:latest
+
+.init_ssh: &init_ssh |
+  eval $(ssh-agent -s)
+  echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add - > /dev/null
+  mkdir -p ~/.ssh
+  chmod 700 ~/.ssh
+  [[ -f /.dockerenv ]] && echo -e "Host *\n\tStrictHostKeyChecking no\n\n" > ~/.ssh/config
+
+  # Replace the last line with the following lines if you'd rather
+  # leave StrictHostKeyChecking enabled (replace yourdomain.com):
+  #
+  #  ssh-keyscan yourdomain.com >> ~/.ssh/known_hosts
+  #  chmod 644 ~/.ssh/known_hosts
+
+.change_file_permissions: &change_file_permissions |
+  find . -type f -not -path "./vendor/*" -exec chmod 664 {} \;
+  find . -type d -not -path "./vendor/*" -exec chmod 775 {} \;
+
+composer:
+  stage: build
+  cache:
+    key: ${CI_COMMIT_REF_SLUG}-composer
+    paths:
+      - vendor/
+  script:
+    - composer install --prefer-dist --no-ansi --no-interaction --no-progress --no-scripts
+    - cp .env.develop.example .env
+    - php artisan key:generate
+  artifacts:
+    expire_in: 1 month
+    paths:
+      - vendor/
+      - .env
+  only:
+    - develop
+
+npm:
+  stage: build
+  cache:
+    key: ${CI_COMMIT_REF_SLUG}-npm
+    paths:
+      - node_modules/
+  script:
+    - npm install
+    - npm run production
+  artifacts:
+    expire_in: 1 month
+    paths:
+      - node_modules/
+      - public/css/
+      - public/js/
+  only:
+    - develop
+
+codestyle:
+  stage: test
+  dependencies: []
+  needs: ["composer"]
+  script:
+    - composer install
+    - vendor/bin/phpcs
+  only:
+    - develop
+
+#phpunit:
+#  stage: test
+#  dependencies:
+#    - composer
+#  needs: ["composer"]
+#  script:
+#    - ./vendor/bin/phpunit --colors=never
+
+development:
+  stage: deploy
+  script:
+    - *init_ssh
+    - *change_file_permissions
+    - ssh gitlab@$SSH_DEV_HOST "cd /var/www && docker-compose down && exit"
+    - ssh gitlab@$SSH_DEV_HOST "cd /var/www && git reset --hard origin/develop && exit"
+    - ssh gitlab@$SSH_DEV_HOST "cd /var/www && git pull && exit"
+    - ssh gitlab@$SSH_DEV_HOST "cd /var/www && cp .env.develop.example .env && exit"
+    - ssh gitlab@$SSH_DEV_HOST "cd /var/www && docker-compose pull && docker-compose build && docker-compose up -d && exit"
+    - ssh gitlab@$SSH_DEV_HOST "cd /var/www && docker-compose exec -T api sh -c 'composer install' && exit"
+    - ssh gitlab@$SSH_DEV_HOST "cd /var/www && docker-compose exec -T api sh -c 'php artisan route:cache' && exit"
+    - ssh gitlab@$SSH_DEV_HOST "cd /var/www && docker-compose exec -T api sh -c 'php artisan migrate' && exit"
+    - ssh gitlab@$SSH_DEV_HOST "cd /var/www && docker-compose exec -T api sh -c 'php artisan optimize' && exit"
+    - ssh gitlab@$SSH_DEV_HOST "cd /var/www && docker-compose exec -T api sh -c 'php artisan config:clear' && exit"
+  environment:
+    name: development
+    url: http://$SSH_DEV_HOST
+  only:
+    - develop
